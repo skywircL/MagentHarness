@@ -112,8 +112,18 @@ class AgentConfig:
     context: ContextSettings = field(default_factory=ContextSettings)
     # Opt in without changing adapters that only implement complete().
     stream_model: bool = False
+    # Current application capabilities, including engine-owned ask_user. This
+    # ceiling is not persisted: restored policies cannot revive revoked tools.
+    enabled_tools: frozenset[str] | None = None
 
     def __post_init__(self) -> None:
+        enabled = self.enabled_tools
+        if enabled is not None:
+            if not isinstance(enabled, (set, frozenset, list, tuple)) or any(
+                not isinstance(name, str) or not name.strip() for name in enabled
+            ):
+                raise ValueError("enabled_tools must be a collection of nonempty tool names")
+            object.__setattr__(self, "enabled_tools", frozenset(enabled))
         for name in ("max_parallel_tools", "max_tool_calls_per_round"):
             if type(getattr(self, name)) is not int or getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be a positive integer")
@@ -525,8 +535,12 @@ class AgentEngine:
         system = self.config.system_prompt
         if memory_prompt:
             system = f"{system}\n\n{memory_prompt}"
-        tools = [spec for spec in self.registry.specs() if policy.offered(caller, spec)]
-        if self.config.interactive:
+        tools = [
+            spec
+            for spec in self.registry.specs()
+            if self._tool_enabled(spec.name) and policy.offered(caller, spec)
+        ]
+        if self.config.interactive and self._tool_enabled(ASK_USER_TOOL_NAME):
             tools.append(ASK_USER_SPEC)
         return _Run(
             run_id=run_id,
@@ -541,6 +555,10 @@ class AgentEngine:
             context=ContextManager(self._context_settings(), self.estimator, self.summarizer),
             events=events,
         )
+
+    def _tool_enabled(self, name: str) -> bool:
+        enabled = self.config.enabled_tools
+        return enabled is None or name in enabled
 
     async def _drive(
         self,
@@ -981,6 +999,10 @@ class AgentEngine:
     def _plan(self, run: _Run, call: ToolCall, answer: AgentPrompt | None) -> _Plan:
         if answer is not None and answer.tool_call_id != call.id:
             raise SnapshotError(f"prompt answers {answer.tool_call_id}, not {call.id}")
+        if not self._tool_enabled(call.name):
+            return _Immediate(
+                ToolResult.fail(f"tool {call.name} is not enabled in the current runtime")
+            )
         try:
             args = json.loads(call.arguments or "{}")
         except ValueError as exc:

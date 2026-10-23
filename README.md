@@ -78,6 +78,8 @@ MagWorkspace 已通过 MySQL 持久化跨 Session 的个人记忆，由 Go 授�
 
 长上下文管理在实际发送前计入 system、工具 schema 与回答预留；摘要有独立预算、超时和完整性检查，失败时可明确省略旧历史，不可缩减的请求直接失败。原始请求、完整工具组、当前 reasoning 和审批边界保留，模型可见历史改写先持久化。配置及 MagWorkspace 历史窗口见[长上下文与安全压缩](docs/context.md)。
 
+工具按当前后端能力动态提供，`AgentConfig.enabled_tools` 同时约束模型可见列表和执行，恢复时重新检查。MagWorkspace 接入知识库发现、多库检索/文档筛选、文档阅读、历史会话、提问、个人记忆和审批写入；知识库筛选始终收窄原有文档权限。接口与边界见[工具能力与结果治理](docs/tools.md)。
+
 ## 文档
 
 - [AGENTS.md](AGENTS.md)：贡献规则与入口

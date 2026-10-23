@@ -481,6 +481,16 @@ def refresh_memory_messages(
         if message.role == "tool" and (
             message.name == "search_memory" or (call is not None and call.name == "search_memory")
         ):
+            if (
+                call is not None
+                and call.name == "search_memory"
+                and message.content.startswith("Error: ")
+            ):
+                # ToolResult.model_content marks failed calls this way, including
+                # permission denials. Authority refresh must not execute their
+                # query or turn a refused call into successful memory output.
+                refreshed.append(message)
+                continue
             content = _UNAVAILABLE
             if service is not None and call is not None and call.name == "search_memory":
                 try:
